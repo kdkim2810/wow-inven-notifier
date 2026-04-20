@@ -48,16 +48,13 @@ def main():
     new_posts = []
 
     for row in rows:
-        # 제목 링크 태그 찾기 (인벤의 다양한 CSS 클래스 대응)
         title_tag = row.select_one('.subject-link') or row.select_one('.sj_line') or row.select_one('.tit a')
         if not title_tag:
             continue
             
-        # 탭, 줄바꿈 등 지저분한 텍스트 공백을 깔끔하게 정리
         title = " ".join(title_tag.text.split())
         link = title_tag.get('href', '')
         
-        # URL에서 글 번호(숫자)를 완벽하게 추출하는 로직
         try:
             if 'l=' in link:
                 post_id = int(link.split('l=')[1].split('&')[0])
@@ -73,12 +70,15 @@ def main():
 
     print(f"-> 새로 발견된 글 개수: {len(new_posts)}개")
 
-    for post in reversed(new_posts):
-        if last_id == 0:
-            send_discord_msg(post['title'], post['link'])
-            print("-> 최초 실행이므로 1개의 글만 전송했습니다.")
-            break
-        else:
+    # [버그 수정된 부분] 최초 실행과 평상시 전송 로직 분리
+    if last_id == 0 and new_posts:
+        # 최초 실행 시에는 리스트의 맨 첫 번째(가장 최신 글) 1개만 전송
+        newest_post = new_posts[0]
+        send_discord_msg(newest_post['title'], newest_post['link'])
+        print("-> 최초 실행이므로 가장 최신 글 1개만 전송했습니다.")
+    else:
+        # 평상시에는 오래된 글부터 최신 글 순서로 알림 전송 (디스코드에 위에서 아래로 쌓이게)
+        for post in reversed(new_posts):
             send_discord_msg(post['title'], post['link'])
 
     if new_last_id > last_id:
