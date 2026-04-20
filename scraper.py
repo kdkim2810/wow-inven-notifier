@@ -8,6 +8,9 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
 STATE_FILE = "state.json"
 
+# 🚫 여기에 보기 싫은 단어들을 적어주세요! (따옴표와 쉼표 주의)
+BLOCKED_WORDS = ["버스", "쐐기", "초보", "다이소", "갠룻", "주사위", "학원", "렙업", "저득"]
+
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
@@ -23,8 +26,9 @@ def send_discord_msg(title, link):
         print("에러: DISCORD_WEBHOOK URL이 비어있습니다.")
         return
         
+    # 💡 "새로운 파티글..." 문구를 제거하고 제목과 링크만 보냅니다. (미리보기 유지)
     data = {
-        "content": f"🚨 **새로운 파티글이 올라왔습니다!**\n[{title}]({link})"
+        "content": f"[{title}]({link})"
     }
     response = requests.post(WEBHOOK_URL, json=data)
     if response.status_code == 204:
@@ -54,6 +58,11 @@ def main():
             continue
             
         title = " ".join(title_tag.text.split())
+        
+        # 🛑 필터링 핵심: 제목에 차단할 단어가 하나라도 있으면 무시하고 넘어감
+        if any(word in title for word in BLOCKED_WORDS):
+            continue
+
         link = title_tag.get('href', '')
         
         try:
