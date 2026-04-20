@@ -1,25 +1,26 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+import json
 
 # GitHub Secrets에서 가져올 웹훅 URL
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
-LAST_ID_FILE = "last_id.txt"
+STATE_FILE = "state.json"
 
-def get_last_id():
-    if os.path.exists(LAST_ID_FILE):
-        with open(LAST_ID_FILE, "r") as f:
-            return int(f.read().strip())
-    return 0
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    return {"last_id": 0}
 
-def save_last_id(post_id):
-    with open(LAST_ID_FILE, "w") as f:
-        f.write(str(post_id))
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
 
 def send_discord_msg(title, link):
     if not WEBHOOK_URL:
-        print("에러: DISCORD_WEBHOOK URL이 비어있습니다. Secrets 설정을 확인하세요.")
+        print("에러: DISCORD_WEBHOOK URL이 비어있습니다.")
         return
         
     data = {
@@ -29,7 +30,7 @@ def send_discord_msg(title, link):
     if response.status_code == 204:
         print(f"디스코드 전송 성공: {title}")
     else:
-        print(f"디스코드 전송 실패: 상태 코드 {response.status_code}")
+        print(f"디스코드 전송 실패: {response.status_code}")
 
 def main():
     headers = {
@@ -40,10 +41,10 @@ def main():
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    # 인벤 게시판의 공지를 제외한 일반 글 목록 가져오기
     rows = soup.select('.board-list tbody tr:not(.notice)')
     
-    last_id = get_last_id()
+    state = load_state()
+    last_id = state["last_id"]
     new_last_id = last_id
     new_posts = []
 
@@ -70,19 +71,17 @@ def main():
 
     print(f"-> 새로 발견된 글 개수: {len(new_posts)}개")
 
-    # [버그 수정된 부분] 최초 실행과 평상시 전송 로직 분리
     if last_id == 0 and new_posts:
-        # 최초 실행 시에는 리스트의 맨 첫 번째(가장 최신 글) 1개만 전송
         newest_post = new_posts[0]
         send_discord_msg(newest_post['title'], newest_post['link'])
         print("-> 최초 실행이므로 가장 최신 글 1개만 전송했습니다.")
     else:
-        # 평상시에는 오래된 글부터 최신 글 순서로 알림 전송 (디스코드에 위에서 아래로 쌓이게)
         for post in reversed(new_posts):
             send_discord_msg(post['title'], post['link'])
 
     if new_last_id > last_id:
-        save_last_id(new_last_id)
+        state["last_id"] = new_last_id
+        save_state(state)
         print(f"-> 마지막 글 번호 갱신 완료: {new_last_id}")
 
 if __name__ == "__main__":
