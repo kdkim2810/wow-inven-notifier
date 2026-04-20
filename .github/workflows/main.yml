@@ -1,7 +1,6 @@
 name: WoW Inven Scraper
 
 on:
-  push:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
