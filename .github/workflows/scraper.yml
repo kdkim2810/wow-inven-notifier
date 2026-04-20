@@ -1,0 +1,40 @@
+name: WoW Inven Scraper
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 저장소 코드 가져오기
+      uses: actions/checkout@v4
+
+    - name: 파이썬 환경 설정
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: 필요 라이브러리 설치
+      run: |
+        pip install requests beautifulsoup4
+
+    - name: 크롤러 스크립트 실행
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: python scraper.py
+
+    - name: 변경된 state.json 저장 (커밋)
+      run: |
+        git config --global user.email "actions@github.com"
+        git config --global user.name "GitHub Actions"
+        if [ -f state.json ]; then
+          git add state.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update state" && git push)
+        fi
