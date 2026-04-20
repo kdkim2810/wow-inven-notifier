@@ -9,7 +9,7 @@ BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
 STATE_FILE = "state.json"
 
 # 🚫 여기에 보기 싫은 단어들을 적어주세요! (따옴표와 쉼표 주의)
-BLOCKED_WORDS = ["버스", "쐐기", "초보", "다이소", "갠룻", "주사위", "학원", "렙업", "저득"]
+BLOCKED_WORDS = ["버스", "쐐기", "초보", "다이소", "갠룻", "주사위", "학원", "렙업", "저득", "레벨업", "대장정"]
 
 def load_state():
     if os.path.exists(STATE_FILE):
