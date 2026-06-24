@@ -1,13 +1,20 @@
 import os
 import time
+import smtplib
 import requests
+from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 
-# GitHub Secrets에서 가져올 웹훅 URL
+# GitHub Secrets에서 가져올 값들
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
+GMAIL_USER = os.environ.get("GMAIL_USER")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
+
 BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
 LAST_ID_FILE = "last_id.txt"
+FAIL_COUNT_FILE = "fail_count.txt"
+FAIL_THRESHOLD = 3
 
 
 def fetch_with_retry(url, retries=3, delay=10):
@@ -23,7 +30,19 @@ def fetch_with_retry(url, retries=3, delay=10):
             if attempt < retries:
                 print(f"-> {delay}초 후 재시도...")
                 time.sleep(delay)
-    raise Exception(f"최대 재시도 횟수({retries}) 초과. 스크래핑 실패.")
+    return None
+
+
+def get_fail_count():
+    if os.path.exists(FAIL_COUNT_FILE):
+        with open(FAIL_COUNT_FILE, "r") as f:
+            return int(f.read().strip())
+    return 0
+
+
+def save_fail_count(count):
+    with open(FAIL_COUNT_FILE, "w") as f:
+        f.write(str(count))
 
 
 def get_last_id():
@@ -40,13 +59,9 @@ def save_last_id(post_id):
 
 def send_discord_msg(title, link):
     if not WEBHOOK_URL:
-        print("에러: DISCORD_WEBHOOK URL이 비어있습니다. Secrets 설정을 확인하세요.")
+        print("에러: DISCORD_WEBHOOK URL이 비어있습니다.")
         return
-
-    data = {
-        "content": f"🚨 **새로운 파티글이 올라왔습니다!**\n[{title}]({link})"
-    }
-
+    data = {"content": f"🚨 **새로운 파티글이 올라왔습니다!**\n[{title}]({link})"}
     response = requests.post(WEBHOOK_URL, json=data)
     if response.status_code == 204:
         print(f"디스코드 전송 성공: {title}")
@@ -54,11 +69,45 @@ def send_discord_msg(title, link):
         print(f"디스코드 전송 실패: 상태 코드 {response.status_code}")
 
 
+def send_fail_email(fail_count):
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        print("에러: Gmail 설정이 비어있습니다. Secrets를 확인하세요.")
+        return
+    try:
+        msg = MIMEText(
+            f"wow-inven-notifier가 연속 {fail_count}회 스크래핑에 실패했습니다.\n\n"
+            f"인벤 서버 차단 또는 네트워크 문제일 수 있습니다.\n"
+            f"GitHub Actions 로그를 확인해주세요.\n\n"
+            f"https://github.com/kdkim2810/wow-inven-notifier/actions"
+        )
+        msg['Subject'] = f"[WoW 인벤 알리미] 연속 {fail_count}회 실패 알림"
+        msg['From'] = GMAIL_USER
+        msg['To'] = GMAIL_USER
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            smtp.send_message(msg)
+        print(f"실패 알림 메일 전송 완료 ({fail_count}회 연속 실패)")
+    except Exception as e:
+        print(f"메일 전송 실패: {e}")
+
+
 def main():
     response = fetch_with_retry(BOARD_URL)
-    soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 인벤 게시판의 공지를 제외한 일반 글 목록 가져오기
+    # 스크래핑 실패 처리
+    if response is None:
+        fail_count = get_fail_count() + 1
+        save_fail_count(fail_count)
+        print(f"-> 스크래핑 실패. 누적 실패 횟수: {fail_count}")
+        if fail_count >= FAIL_THRESHOLD:
+            send_fail_email(fail_count)
+        return
+
+    # 스크래핑 성공 시 실패 카운트 리셋
+    save_fail_count(0)
+
+    soup = BeautifulSoup(response.text, 'html.parser')
     rows = soup.select('.board-list tbody tr:not(.notice)')
 
     last_id = get_last_id()
@@ -88,7 +137,6 @@ def main():
 
     print(f"-> 새로 발견된 글 개수: {len(new_posts)}개")
 
-    # 최초 실행과 평상시 전송 로직 분리
     if last_id == 0 and new_posts:
         newest_post = new_posts[0]
         send_discord_msg(newest_post['title'], newest_post['link'])
