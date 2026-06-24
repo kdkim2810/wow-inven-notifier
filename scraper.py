@@ -1,54 +1,68 @@
 import os
+import time
 import requests
 from bs4 import BeautifulSoup
-import json
 
 # GitHub Secrets에서 가져올 웹훅 URL
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
-STATE_FILE = "state.json"
+LAST_ID_FILE = "last_id.txt"
 
-# 🚫 여기에 보기 싫은 단어들을 적어주세요! (따옴표와 쉼표 주의)
-BLOCKED_WORDS = ["버스", "쐐기", "초보", "다이소", "갠룻", "주사위", "학원", "저득", "렙업", "레벨", "대장정", "작업"]
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    return {"last_id": 0}
+def fetch_with_retry(url, headers, retries=3, delay=10):
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as e:
+            print(f"[{attempt}/{retries}] 요청 실패: {e}")
+            if attempt < retries:
+                print(f"-> {delay}초 후 재시도...")
+                time.sleep(delay)
+    raise Exception(f"최대 재시도 횟수({retries}) 초과. 스크래핑 실패.")
 
-def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
+
+def get_last_id():
+    if os.path.exists(LAST_ID_FILE):
+        with open(LAST_ID_FILE, "r") as f:
+            return int(f.read().strip())
+    return 0
+
+
+def save_last_id(post_id):
+    with open(LAST_ID_FILE, "w") as f:
+        f.write(str(post_id))
+
 
 def send_discord_msg(title, link):
     if not WEBHOOK_URL:
-        print("에러: DISCORD_WEBHOOK URL이 비어있습니다.")
+        print("에러: DISCORD_WEBHOOK URL이 비어있습니다. Secrets 설정을 확인하세요.")
         return
-        
-    # 💡 "새로운 파티글..." 문구를 제거하고 제목과 링크만 보냅니다. (미리보기 유지)
+
     data = {
-        "content": f"[{title}]({link})"
+        "content": f"🚨 **새로운 파티글이 올라왔습니다!**\n[{title}]({link})"
     }
+
     response = requests.post(WEBHOOK_URL, json=data)
     if response.status_code == 204:
         print(f"디스코드 전송 성공: {title}")
     else:
-        print(f"디스코드 전송 실패: {response.status_code}")
+        print(f"디스코드 전송 실패: 상태 코드 {response.status_code}")
+
 
 def main():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
-    response = requests.get(BOARD_URL, headers=headers)
-    response.raise_for_status()
+
+    response = fetch_with_retry(BOARD_URL, headers)
     soup = BeautifulSoup(response.text, 'html.parser')
-    
+
+    # 인벤 게시판의 공지를 제외한 일반 글 목록 가져오기
     rows = soup.select('.board-list tbody tr:not(.notice)')
-    
-    state = load_state()
-    last_id = state["last_id"]
+
+    last_id = get_last_id()
     new_last_id = last_id
     new_posts = []
 
@@ -56,15 +70,10 @@ def main():
         title_tag = row.select_one('.subject-link') or row.select_one('.sj_line') or row.select_one('.tit a')
         if not title_tag:
             continue
-            
-        title = " ".join(title_tag.text.split())
-        
-        # 🛑 필터링 핵심: 제목에 차단할 단어가 하나라도 있으면 무시하고 넘어감
-        if any(word in title for word in BLOCKED_WORDS):
-            continue
 
+        title = " ".join(title_tag.text.split())
         link = title_tag.get('href', '')
-        
+
         try:
             if 'l=' in link:
                 post_id = int(link.split('l=')[1].split('&')[0])
@@ -75,23 +84,26 @@ def main():
 
         if post_id > last_id:
             new_posts.append({"id": post_id, "title": title, "link": link})
-            if post_id > new_last_id:
-                new_last_id = post_id
+        if post_id > new_last_id:
+            new_last_id = post_id
 
     print(f"-> 새로 발견된 글 개수: {len(new_posts)}개")
 
+    # 최초 실행과 평상시 전송 로직 분리
     if last_id == 0 and new_posts:
+        # 최초 실행 시에는 리스트의 맨 첫 번째(가장 최신 글) 1개만 전송
         newest_post = new_posts[0]
         send_discord_msg(newest_post['title'], newest_post['link'])
         print("-> 최초 실행이므로 가장 최신 글 1개만 전송했습니다.")
     else:
+        # 평상시에는 오래된 글부터 최신 글 순서로 알림 전송 (디스코드에 위에서 아래로 쌓이게)
         for post in reversed(new_posts):
             send_discord_msg(post['title'], post['link'])
 
     if new_last_id > last_id:
-        state["last_id"] = new_last_id
-        save_state(state)
+        save_last_id(new_last_id)
         print(f"-> 마지막 글 번호 갱신 완료: {new_last_id}")
+
 
 if __name__ == "__main__":
     main()
