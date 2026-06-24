@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
 
 # GitHub Secrets에서 가져올 웹훅 URL
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
@@ -9,9 +10,11 @@ BOARD_URL = "https://www.inven.co.kr/board/wow/2972"
 LAST_ID_FILE = "last_id.txt"
 
 
-def fetch_with_retry(url, headers, retries=3, delay=10):
+def fetch_with_retry(url, retries=3, delay=10):
     for attempt in range(1, retries + 1):
         try:
+            ua = UserAgent()
+            headers = {"User-Agent": ua.random}
             response = requests.get(url, headers=headers, timeout=15)
             response.raise_for_status()
             return response
@@ -52,11 +55,7 @@ def send_discord_msg(title, link):
 
 
 def main():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
-    response = fetch_with_retry(BOARD_URL, headers)
+    response = fetch_with_retry(BOARD_URL)
     soup = BeautifulSoup(response.text, 'html.parser')
 
     # 인벤 게시판의 공지를 제외한 일반 글 목록 가져오기
@@ -91,12 +90,10 @@ def main():
 
     # 최초 실행과 평상시 전송 로직 분리
     if last_id == 0 and new_posts:
-        # 최초 실행 시에는 리스트의 맨 첫 번째(가장 최신 글) 1개만 전송
         newest_post = new_posts[0]
         send_discord_msg(newest_post['title'], newest_post['link'])
         print("-> 최초 실행이므로 가장 최신 글 1개만 전송했습니다.")
     else:
-        # 평상시에는 오래된 글부터 최신 글 순서로 알림 전송 (디스코드에 위에서 아래로 쌓이게)
         for post in reversed(new_posts):
             send_discord_msg(post['title'], post['link'])
 
