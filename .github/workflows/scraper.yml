@@ -23,7 +23,7 @@ jobs:
 
       - name: 필요 라이브러리 설치
         run: |
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 fake-useragent
 
       - name: 크롤러 스크립트 실행
         env:
