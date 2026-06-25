@@ -21,7 +21,7 @@ def fetch_with_retry(url, retries=3, delay=10):
     ua = UserAgent()
     for attempt in range(1, retries + 1):
         try:
-            headers = {"User-Agent": ua.chrome}
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"}
             print(f"[{attempt}/{retries}] 요청 시도 중... User-Agent: {headers['User-Agent']}")
             response = requests.get(url, headers=headers, timeout=15)
             print(f"[{attempt}/{retries}] 응답 상태 코드: {response.status_code}")
