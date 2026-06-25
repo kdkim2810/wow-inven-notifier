@@ -4,7 +4,6 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
-from fake_useragent import UserAgent
 
 # GitHub Secrets에서 가져올 값들
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
@@ -16,14 +15,16 @@ LAST_ID_FILE = "last_id.txt"
 FAIL_COUNT_FILE = "fail_count.txt"
 FAIL_THRESHOLD = 3
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+}
+
 
 def fetch_with_retry(url, retries=3, delay=10):
-    ua = UserAgent()
     for attempt in range(1, retries + 1):
         try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"}
-            print(f"[{attempt}/{retries}] 요청 시도 중... User-Agent: {headers['User-Agent']}")
-            response = requests.get(url, headers=headers, timeout=15)
+            print(f"[{attempt}/{retries}] 요청 시도 중... User-Agent: {HEADERS['User-Agent']}")
+            response = requests.get(url, headers=HEADERS, timeout=15)
             print(f"[{attempt}/{retries}] 응답 상태 코드: {response.status_code}")
             print(f"[{attempt}/{retries}] 응답 HTML 길이: {len(response.text)}")
             response.raise_for_status()
