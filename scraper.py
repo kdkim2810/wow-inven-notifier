@@ -18,10 +18,10 @@ FAIL_THRESHOLD = 3
 
 
 def fetch_with_retry(url, retries=3, delay=10):
+    ua = UserAgent()
     for attempt in range(1, retries + 1):
         try:
-            ua = UserAgent()
-            headers = {"User-Agent": ua.random}
+            headers = {"User-Agent": ua.chrome}
             print(f"[{attempt}/{retries}] 요청 시도 중... User-Agent: {headers['User-Agent']}")
             response = requests.get(url, headers=headers, timeout=15)
             print(f"[{attempt}/{retries}] 응답 상태 코드: {response.status_code}")
