@@ -22,7 +22,10 @@ def fetch_with_retry(url, retries=3, delay=10):
         try:
             ua = UserAgent()
             headers = {"User-Agent": ua.random}
+            print(f"[{attempt}/{retries}] 요청 시도 중... User-Agent: {headers['User-Agent']}")
             response = requests.get(url, headers=headers, timeout=15)
+            print(f"[{attempt}/{retries}] 응답 상태 코드: {response.status_code}")
+            print(f"[{attempt}/{retries}] 응답 HTML 길이: {len(response.text)}")
             response.raise_for_status()
             return response
         except requests.RequestException as e:
@@ -48,7 +51,10 @@ def save_fail_count(count):
 def get_last_id():
     if os.path.exists(LAST_ID_FILE):
         with open(LAST_ID_FILE, "r") as f:
-            return int(f.read().strip())
+            content = f.read().strip()
+            print(f"-> last_id.txt 파일 내용: '{content}'")
+            return int(content)
+    print("-> last_id.txt 파일 없음. last_id = 0 으로 시작")
     return 0
 
 
@@ -93,6 +99,11 @@ def send_fail_email(fail_count):
 
 
 def main():
+    print("=" * 50)
+    print(f"-> 현재 작업 디렉토리: {os.getcwd()}")
+    print(f"-> last_id.txt 존재 여부: {os.path.exists(LAST_ID_FILE)}")
+    print(f"-> fail_count.txt 존재 여부: {os.path.exists(FAIL_COUNT_FILE)}")
+
     response = fetch_with_retry(BOARD_URL)
 
     # 스크래핑 실패 처리
@@ -109,8 +120,11 @@ def main():
 
     soup = BeautifulSoup(response.text, 'html.parser')
     rows = soup.select('.board-list tbody tr:not(.notice)')
+    print(f"-> 파싱된 행 수: {len(rows)}")
 
     last_id = get_last_id()
+    print(f"-> 현재 last_id: {last_id}")
+
     new_last_id = last_id
     new_posts = []
 
@@ -136,7 +150,10 @@ def main():
             new_last_id = post_id
 
     print(f"-> 새로 발견된 글 개수: {len(new_posts)}개")
+    if rows:
+        print(f"-> 게시판 최신 글 ID: {new_last_id}")
 
+    # 최초 실행과 평상시 전송 로직 분리
     if last_id == 0 and new_posts:
         newest_post = new_posts[0]
         send_discord_msg(newest_post['title'], newest_post['link'])
@@ -148,6 +165,8 @@ def main():
     if new_last_id > last_id:
         save_last_id(new_last_id)
         print(f"-> 마지막 글 번호 갱신 완료: {new_last_id}")
+
+    print("=" * 50)
 
 
 if __name__ == "__main__":
