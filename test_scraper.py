@@ -105,7 +105,7 @@ class ScraperTests(unittest.TestCase):
         with patch.object(s.requests, 'get', side_effect=requests.ConnectionError('reset')) as get, patch.object(s.time, 'sleep'):
             with self.assertRaises(RuntimeError):
                 s.fetch_with_retry(s.BOARD_URL)
-            self.assertEqual(get.call_count, 3)
+            self.assertEqual(get.call_count, 4)
 
 
     def test_non_finite_rate_limit_uses_safe_delay(self):
@@ -142,6 +142,47 @@ class ScraperTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 s.send_discord_msg('title', 'link')
             self.assertFalse(post.call_args.kwargs['allow_redirects'])
+
+    def test_connect_timeout_recovers_on_fourth_attempt(self):
+        response = Mock(status_code=200, content=b'ok')
+        response.raise_for_status.return_value = None
+        with patch.object(s.requests, 'get', side_effect=[requests.ConnectTimeout(), requests.ConnectTimeout(), requests.ConnectTimeout(), response]) as get, patch.object(s.time, 'sleep') as sleep, patch.object(s.random, 'uniform', return_value=0):
+            self.assertIs(s.fetch_with_retry(s.BOARD_URL), response)
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], [15, 30, 60])
+            self.assertEqual(get.call_args.kwargs['timeout'], (15, 30))
+
+    def test_permanent_http_failure_is_not_retried(self):
+        response = Mock(status_code=403)
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        with patch.object(s.requests, 'get', return_value=response) as get, patch.object(s.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 403'):
+                s.fetch_with_retry(s.BOARD_URL)
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_transient_server_error_recovers(self):
+        failed = Mock(status_code=503)
+        failed.raise_for_status.side_effect = requests.HTTPError(response=failed)
+        success = Mock(status_code=200, content=b'ok')
+        success.raise_for_status.return_value = None
+        with patch.object(s.requests, 'get', side_effect=[failed, success]), patch.object(s.time, 'sleep'):
+            self.assertIs(s.fetch_with_retry(s.BOARD_URL), success)
+
+    def test_exhausted_timeout_keeps_specific_reason_and_state(self):
+        with patch.object(s.requests, 'get', side_effect=requests.ConnectTimeout('private-url')), patch.object(s.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, '4회.*ConnectTimeout') as caught:
+                s.fetch_with_retry(s.BOARD_URL)
+            self.assertNotIn('private-url', str(caught.exception))
+        self.assertEqual(s.read_counter(s.LAST_ID_FILE), 100)
+
+    def test_server_long_retry_after_defers_until_next_schedule(self):
+        response = Mock(status_code=429, headers={'Retry-After': '120'})
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        with patch.object(s.requests, 'get', return_value=response) as get, patch.object(s.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, '다음 정기 실행'):
+                s.fetch_with_retry(s.BOARD_URL)
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

@@ -43,19 +43,43 @@ def write_counter(path, value):
     temporary.replace(path)
 
 
-def fetch_with_retry(url, retries=3, delay=10):
+def fetch_with_retry(url, retries=4, delay=15):
+    if retries < 1:
+        raise ValueError('인벤 요청 횟수는 1 이상이어야 합니다')
+    last_reason = '원인 미확인'
     for attempt in range(1, retries + 1):
+        print(f'인벤 요청 시작 [{attempt}/{retries}]', flush=True)
         try:
-            response = requests.get(url, headers=HEADERS, timeout=(10, 30))
+            response = requests.get(url, headers=HEADERS, timeout=(15, 30))
             response.raise_for_status()
-            print(f'인벤 응답: HTTP {response.status_code}, {len(response.content)} bytes')
+            print(f'인벤 응답: HTTP {response.status_code}, {len(response.content)} bytes', flush=True)
             return response
         except requests.RequestException as exc:
-            # 예외의 URL에는 인증 정보가 있을 수 있으므로 예외 종류만 기록한다.
-            print(f'인벤 요청 실패 [{attempt}/{retries}]: {type(exc).__name__}')
+            # URL/응답 본문을 노출하지 않고 오류 종류와 상태 코드만 기록한다.
+            status = exc.response.status_code if exc.response is not None else None
+            last_reason = f'HTTP {status}' if status is not None else type(exc).__name__
+            print(f'인벤 요청 실패 [{attempt}/{retries}]: {last_reason}', flush=True)
+            transient = isinstance(exc, (requests.Timeout, requests.ConnectionError))
+            if isinstance(exc, requests.exceptions.SSLError):
+                transient = False
+            if status is not None:
+                transient = status in (408, 429) or 500 <= status < 600
+            if not transient:
+                raise RuntimeError(f'인벤 요청 중단: {last_reason} (재시도 대상 아님)') from None
             if attempt < retries:
-                time.sleep(delay * attempt + random.uniform(0, 3))
-    raise RuntimeError('인벤 접속 실패: 재시도 소진')
+                wait = min(delay * 2 ** (attempt - 1), 60) + random.uniform(0, 3)
+                if status == 429:
+                    try:
+                        retry_after = float(exc.response.headers.get('Retry-After', wait))
+                    except (ValueError, TypeError):
+                        retry_after = wait
+                    if math.isfinite(retry_after):
+                        if retry_after > 60:
+                            raise RuntimeError('인벤 요청 제한: 다음 정기 실행에서 재시도') from None
+                        wait = max(wait, retry_after)
+                print(f'{wait:.1f}초 후 인벤 재접속', flush=True)
+                time.sleep(wait)
+    raise RuntimeError(f'인벤 접속 실패: {retries}회 재시도 소진, 최종 원인 {last_reason}')
 
 
 def parse_posts(html):
