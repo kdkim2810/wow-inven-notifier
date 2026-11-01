@@ -184,5 +184,21 @@ class ScraperTests(unittest.TestCase):
             self.assertEqual(get.call_count, 1)
             sleep.assert_not_called()
 
+    def test_partial_row_failure_does_not_skip_missing_post(self):
+        html = listing(101, 102).replace('class="subject-link" href="/board/wow/2972/101"', 'class="unrecognized" href="/board/wow/2972/101"')
+        with self.assertRaisesRegex(RuntimeError, '일부 게시글'):
+            s.parse_posts(html)
+        self.assertEqual(s.read_counter(s.LAST_ID_FILE), 100)
+
+    def test_post_number_and_link_mismatch_fails(self):
+        html = listing(101).replace('/2972/101', '/2972/999')
+        with self.assertRaisesRegex(RuntimeError, '일치하지'):
+            s.parse_posts(html)
+
+    def test_invalid_board_link_does_not_skip_numeric_post(self):
+        html = listing(101, 102).replace('/2972/101', '/2081/101')
+        with self.assertRaisesRegex(RuntimeError, '일부 게시글'):
+            s.parse_posts(html)
+
 if __name__ == '__main__':
     unittest.main()

@@ -86,10 +86,13 @@ def parse_posts(html):
     soup = BeautifulSoup(html, 'html.parser')
     rows = soup.select('.board-list tbody tr:not(.notice)')
     posts = {}
+    expected_ids = set()
     for row in rows:
         number = row.select_one('.num')
         if number and not number.get_text(strip=True).replace(',', '').isdigit():
             continue  # 공지/광고는 최신 글 번호에 포함하지 않는다.
+        if number:
+            expected_ids.add(int(number.get_text(strip=True).replace(',', '')))
         tag = row.select_one('.subject-link') or row.select_one('.sj_line') or row.select_one('.tit a')
         if not tag:
             continue
@@ -108,8 +111,12 @@ def parse_posts(html):
         else:
             continue
         title = ' '.join(tag.get_text(' ', strip=True).split())
+        if number and int(number.get_text(strip=True).replace(',', '')) != post_id:
+            raise RuntimeError('게시글 번호와 링크가 일치하지 않습니다. 상태 유지')
         if post_id > 0 and title:
             posts[post_id] = {'id': post_id, 'title': title, 'link': link}
+    if expected_ids.difference(posts):
+        raise RuntimeError('일부 게시글 파싱 실패: 누락 방지를 위해 상태 유지')
     if not posts:
         raise RuntimeError('게시글 파싱 실패: 빈 목록/점검/차단 또는 게시판 구조 변경')
     return sorted(posts.values(), key=lambda post: post['id'])
