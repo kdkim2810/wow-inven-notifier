@@ -6,6 +6,7 @@ on:
     paths:
       - scraper.py
       - test_scraper.py
+      - save_state.sh
       - .github/workflows/scraper.yml
 
 permissions:
@@ -39,7 +40,7 @@ jobs:
 
       - name: 배포 후 접속 및 파싱 점검
         if: github.event_name == 'push'
-        run: python scraper.py --dry-run
+        run: python -u scraper.py --dry-run
 
       - name: 크롤러 스크립트 실행
         if: github.event_name == 'workflow_dispatch'
@@ -47,18 +48,8 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: python scraper.py
+        run: python -u scraper.py
 
       - name: 변경된 상태 파일 저장 (커밋 & 푸시)
         if: always() && github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-          git add last_id.txt fail_count.txt
-          if ! git diff --staged --quiet; then
-            git commit -m "Update state"
-            git pull --rebase origin main
-            git push origin HEAD:main
-          else
-            echo "변경 사항이 없어 커밋하지 않습니다."
-          fi
+        run: bash save_state.sh last_id.txt fail_count.txt
