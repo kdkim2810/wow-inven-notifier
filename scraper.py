@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import random
 import re
@@ -26,7 +27,11 @@ def read_counter(path):
     try:
         value = int(Path(path).read_text(encoding='utf-8').strip())
     except FileNotFoundError:
+        if path == LAST_ID_FILE:
+            raise RuntimeError('마지막 처리 ID 파일 없음: 알림 누락 방지를 위해 실행 중단') from None
         return 0
+    except (ValueError, OSError):
+        raise RuntimeError(f'{path}: 상태 파일 읽기 실패. 원본 보존') from None
     if value < 0:
         raise ValueError(f'{path}: 음수 상태 값')
     return value
@@ -110,7 +115,7 @@ def send_discord_msg(title, link):
             'allowed_mentions': {'parse': []}}
     for attempt in range(3):
         try:
-            response = requests.post(WEBHOOK_URL, json=data, timeout=(10, 30))
+            response = requests.post(WEBHOOK_URL, json=data, timeout=(10, 30), allow_redirects=False)
         except requests.RequestException as exc:
             # 웹훅 URL/토큰을 로그에 노출하지 않는다.
             raise RuntimeError(f'디스코드 접속 실패: {type(exc).__name__}') from None
@@ -120,9 +125,13 @@ def send_discord_msg(title, link):
         if response.status_code == 429 and attempt < 2:
             try:
                 wait = float(response.json().get('retry_after', 5))
+                if not math.isfinite(wait):
+                    wait = 5
             except (ValueError, TypeError, AttributeError):
                 wait = 5
-            time.sleep(min(max(wait, 1), 60))
+            if wait > 60:
+                raise RuntimeError(f'디스코드 요청 제한: {wait:g}초, 다음 실행에서 재시도')
+            time.sleep(max(wait, 1))
             continue
         raise RuntimeError(f'디스코드 전송 실패: HTTP {response.status_code}')
 
@@ -166,10 +175,13 @@ def main(dry_run=False):
         reason = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else type(exc).__name__
         print(f'실행 실패: {reason}')
         if not dry_run:
-            fail_count = read_counter(FAIL_COUNT_FILE) + 1
-            write_counter(FAIL_COUNT_FILE, fail_count)
-            if fail_count == FAIL_THRESHOLD:
-                send_fail_email(fail_count, reason)
+            try:
+                fail_count = read_counter(FAIL_COUNT_FILE) + 1
+                write_counter(FAIL_COUNT_FILE, fail_count)
+                if fail_count == FAIL_THRESHOLD:
+                    send_fail_email(fail_count, reason)
+            except (OSError, ValueError, RuntimeError):
+                print('실패 횟수 저장 불가: 기존 상태 파일을 보존합니다')
         return 1
 
 

@@ -108,5 +108,40 @@ class ScraperTests(unittest.TestCase):
             self.assertEqual(get.call_count, 3)
 
 
+    def test_non_finite_rate_limit_uses_safe_delay(self):
+        limited = Mock(status_code=429)
+        limited.json.return_value = {'retry_after': float('nan')}
+        with patch.object(s.requests, 'post', side_effect=[limited, SimpleNamespace(status_code=204)]), patch.object(s.time, 'sleep') as sleep:
+            s.send_discord_msg('title', 'link')
+            sleep.assert_called_once_with(5)
+
+    def test_long_rate_limit_preserves_checkpoint(self):
+        limited = Mock(status_code=429)
+        limited.json.return_value = {'retry_after': 120}
+        with patch.object(s.requests, 'post', return_value=limited) as post, patch.object(s.time, 'sleep') as sleep:
+            with self.assertRaises(RuntimeError):
+                s.send_discord_msg('title', 'link')
+            self.assertEqual(post.call_count, 1)
+            sleep.assert_not_called()
+        self.assertEqual(s.read_counter(s.LAST_ID_FILE), 100)
+
+    def test_missing_checkpoint_stops_before_fetch(self):
+        Path(s.LAST_ID_FILE).unlink()
+        with patch.object(s, 'collect_new_posts') as collect:
+            self.assertEqual(s.main(), 1)
+            collect.assert_not_called()
+
+    def test_broken_failure_counter_does_not_crash_error_handler(self):
+        Path(s.FAIL_COUNT_FILE).write_text('broken')
+        with patch.object(s, 'collect_new_posts', side_effect=RuntimeError('failure')):
+            self.assertEqual(s.main(), 1)
+        self.assertEqual(Path(s.FAIL_COUNT_FILE).read_text(), 'broken')
+
+    def test_webhook_redirect_is_rejected(self):
+        with patch.object(s.requests, 'post', return_value=SimpleNamespace(status_code=302)) as post:
+            with self.assertRaises(RuntimeError):
+                s.send_discord_msg('title', 'link')
+            self.assertFalse(post.call_args.kwargs['allow_redirects'])
+
 if __name__ == '__main__':
     unittest.main()
