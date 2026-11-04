@@ -173,11 +173,31 @@ def send_fail_email(fail_count, reason):
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         print('Gmail 설정 누락: 실패 메일을 보내지 못했습니다')
         return
+    if '디스코드' in reason or 'DISCORD' in reason:
+        stage = '디스코드 알림 전송'
+        guidance = '웹훅 설정과 디스코드 서비스 상태를 확인하세요.'
+    elif '파싱' in reason or '게시글' in reason or '목록' in reason:
+        stage = '게시판 목록 확인'
+        guidance = '인벤 게시판의 점검 여부와 화면 변경을 확인하세요.'
+    elif '상태' in reason or 'ID' in reason or '파일' in reason:
+        stage = '처리 상태 확인'
+        guidance = '실행 상세에서 상태 파일과 저장 실패 여부를 확인하세요.'
+    else:
+        stage = '인벤 접속 또는 실행'
+        guidance = '인벤 접속 상태와 실행 상세의 오류를 확인하세요.'
+    repo = os.environ.get('GITHUB_REPOSITORY', 'kdkim2810/wow-inven-notifier')
+    run_id = os.environ.get('GITHUB_RUN_ID')
+    run_url = f'https://github.com/{repo}/actions/runs/{run_id}' if run_id else f'https://github.com/{repo}/actions'
+    body = (f'인벤 스크래퍼가 연속 {fail_count}회 실패했습니다.\n\n'
+            f'중단 단계: {stage}\n'
+            f'확인된 오류: {reason}\n\n'
+            f'확인할 사항\n• {guidance}\n'
+            '• 처리 지점은 유지되며, 다음 정기 실행에서 다시 확인합니다.\n\n'
+            f'실행 상세: {run_url}\n\n'
+            '같은 장애가 이어지는 동안 이 상세 메일은 반복 발송하지 않습니다.')
     try:
-        msg = MIMEText(f'wow-inven-notifier가 연속 {fail_count}회 실패했습니다.\n원인: {reason}\n'
-                       '복구 전까지 같은 장애 메일은 반복 발송하지 않습니다.\n'
-                       'https://github.com/kdkim2810/wow-inven-notifier/actions')
-        msg['Subject'] = f'[WoW 인벤 알리미] 연속 {fail_count}회 실패 알림'
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['Subject'] = f'[실패] 인벤 스크래퍼 | {stage} | 연속 {fail_count}회'
         msg['From'] = GMAIL_USER
         msg['To'] = GMAIL_USER
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
