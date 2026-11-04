@@ -84,7 +84,7 @@ def fetch_with_retry(url, retries=4, delay=15):
 
 def parse_posts(html):
     soup = BeautifulSoup(html, 'html.parser')
-    if soup.select_one('.maintenancePage') and soup.title and '서버 점검' in soup.title.get_text():
+    if soup.select_one('#maintenancePage') and soup.title and '서버 점검' in soup.title.get_text():
         raise RuntimeError('인벤 서버 점검 중')
     rows = soup.select('.board-list tbody tr:not(.notice)')
     posts = {}
