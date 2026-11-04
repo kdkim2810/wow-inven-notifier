@@ -84,6 +84,8 @@ def fetch_with_retry(url, retries=4, delay=15):
 
 def parse_posts(html):
     soup = BeautifulSoup(html, 'html.parser')
+    if soup.select_one('.maintenancePage') and soup.title and '서버 점검' in soup.title.get_text():
+        raise RuntimeError('인벤 서버 점검 중')
     rows = soup.select('.board-list tbody tr:not(.notice)')
     posts = {}
     expected_ids = set()
@@ -203,6 +205,9 @@ def main(dry_run=False):
         write_counter(FAIL_COUNT_FILE, 0)
         return 0
     except Exception as exc:
+        if isinstance(exc, RuntimeError) and str(exc) == '인벤 서버 점검 중':
+            print('::notice::인벤 서버 점검 중: 상태를 유지하고 다음 실행에서 재시도합니다')
+            return 0
         reason = str(exc) if isinstance(exc, (RuntimeError, ValueError)) else type(exc).__name__
         print(f'실행 실패: {reason}')
         if not dry_run:
