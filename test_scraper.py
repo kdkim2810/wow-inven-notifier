@@ -29,6 +29,14 @@ class ScraperTests(unittest.TestCase):
         self.webhook.stop()
         os.chdir(self.cwd)
         self.directory.cleanup()
+    def test_maintenance_preserves_state_and_sends_no_alert(self):
+        html = '<html><title>인벤 - 서버 점검 중입니다.</title><div class="maintenancePage">서버점검 중</div></html>'
+        with patch.object(s, 'fetch_with_retry', return_value=SimpleNamespace(text=html)), patch.object(s, 'send_discord_msg') as send, patch.object(s, 'send_fail_email') as email:
+            self.assertEqual(s.main(), 0)
+            send.assert_not_called()
+            email.assert_not_called()
+        self.assertEqual(s.read_counter(s.LAST_ID_FILE), 100)
+        self.assertEqual(s.read_counter(s.FAIL_COUNT_FILE), 0)
 
     def test_parse_orders_deduplicates_and_excludes_notice(self):
         html = listing(102, 101, 102).replace('</tbody>', '<tr><td class="num">공지</td><td><a class="subject-link" href="/board/wow/2972/9999">공지</a></td></tr></tbody>')
