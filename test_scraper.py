@@ -202,3 +202,5 @@ class ScraperTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+# Discord title regression tests are in test_discord_titles.py.
