@@ -142,7 +142,7 @@ def collect_new_posts(last_id):
 def send_discord_msg(title, link):
     if not WEBHOOK_URL:
         raise RuntimeError('DISCORD_WEBHOOK 설정 누락')
-    data = {'content': f'🚨 **새로운 파티글이 올라왔습니다!**\n[{title[:1500]}]({link})',
+    data = {'content': f'🚨 **새로운 파티글이 올라왔습니다!**\n[{''.join(chr(92)+c if c in '[]'+chr(92) else c for c in title[:700])}]({link})',
             'allowed_mentions': {'parse': []}}
     for attempt in range(3):
         try:
