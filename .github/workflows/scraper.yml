@@ -43,12 +43,21 @@ jobs:
         run: python -u scraper.py --dry-run
 
       - name: 크롤러 스크립트 실행
+        id: scraper
+        continue-on-error: true
         if: github.event_name == 'workflow_dispatch'
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python -u scraper.py
+
+      - name: 스크래퍼 실패 기록
+        if: always() && steps.scraper.outcome == 'failure'
+        run: |
+          echo '::warning::스크래퍼 실행 실패. 상세 로그와 연속 실패 횟수를 확인하세요.'
+          echo '### 스크래퍼 실행 실패' >> "$GITHUB_STEP_SUMMARY"
+          echo '상세 원인은 스크래퍼 실행 로그에 기록됩니다. 연속 3회 실패하면 상세 메일을 발송합니다.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: 변경된 상태 파일 저장 (커밋 & 푸시)
         if: always() && github.event_name == 'workflow_dispatch'
