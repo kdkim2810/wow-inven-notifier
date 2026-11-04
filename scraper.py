@@ -197,7 +197,7 @@ def send_fail_email(fail_count, reason):
             '같은 장애가 이어지는 동안 이 상세 메일은 반복 발송하지 않습니다.')
     try:
         msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = f'[실패] 인벤 스크래퍼 | {stage} | 연속 {fail_count}회'
+        msg['Subject'] = f"[{'테스트/실패' if reason.startswith('[테스트]') else '실패'}] 인벤 스크래퍼 | {stage} | 연속 {fail_count}회"
         msg['From'] = GMAIL_USER
         msg['To'] = GMAIL_USER
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
