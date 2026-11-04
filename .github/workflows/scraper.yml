@@ -2,6 +2,11 @@ name: WoW Inven Scraper
 
 on:
   workflow_dispatch:
+    inputs:
+      test_email:
+        description: 테스트 메일만 발송 (실제 수집 없음)
+        type: boolean
+        default: false
   push:
     paths:
       - scraper.py
@@ -45,12 +50,21 @@ jobs:
       - name: 크롤러 스크립트 실행
         id: scraper
         continue-on-error: true
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.test_email
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python -u scraper.py
+
+      - name: 테스트 메일 발송
+        if: github.event_name == 'workflow_dispatch' && inputs.test_email
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          python -u -c "import scraper; scraper.send_fail_email(3, '[테스트] 인벤 접속 실패: 모의 오류')" | tee /tmp/scraper-mail-test.log
+          grep -q '실패 알림 메일 전송 완료' /tmp/scraper-mail-test.log
 
       - name: 스크래퍼 실패 기록
         if: always() && steps.scraper.outcome == 'failure'
@@ -60,5 +74,5 @@ jobs:
           echo '상세 원인은 스크래퍼 실행 로그에 기록됩니다. 연속 3회 실패하면 상세 메일을 발송합니다.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: 변경된 상태 파일 저장 (커밋 & 푸시)
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && !inputs.test_email
         run: bash save_state.sh last_id.txt fail_count.txt
