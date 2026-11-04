@@ -30,7 +30,7 @@ class ScraperTests(unittest.TestCase):
         os.chdir(self.cwd)
         self.directory.cleanup()
     def test_maintenance_preserves_state_and_sends_no_alert(self):
-        html = '<html><title>인벤 - 서버 점검 중입니다.</title><div class="maintenancePage">서버점검 중</div></html>'
+        html = '<html><title>인벤 - 서버 점검 중입니다.</title><div id="maintenancePage">서버점검 중</div></html>'
         with patch.object(s, 'fetch_with_retry', return_value=SimpleNamespace(text=html)), patch.object(s, 'send_discord_msg') as send, patch.object(s, 'send_fail_email') as email:
             self.assertEqual(s.main(), 0)
             send.assert_not_called()
