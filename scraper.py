@@ -6,6 +6,8 @@ import re
 import smtplib
 import time
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from html import escape
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -169,43 +171,65 @@ def send_discord_msg(title, link):
         raise RuntimeError(f'디스코드 전송 실패: HTTP {response.status_code}')
 
 
-def send_fail_email(fail_count, reason):
+def send_email(subject, body):
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-        print('Gmail 설정 누락: 실패 메일을 보내지 못했습니다')
-        return
-    if '디스코드' in reason or 'DISCORD' in reason:
-        stage = '디스코드 알림 전송'
-        guidance = '웹훅 설정과 디스코드 서비스 상태를 확인하세요.'
-    elif '파싱' in reason or '게시글' in reason or '목록' in reason:
-        stage = '게시판 목록 확인'
-        guidance = '인벤 게시판의 점검 여부와 화면 변경을 확인하세요.'
-    elif '상태' in reason or 'ID' in reason or '파일' in reason:
-        stage = '처리 상태 확인'
-        guidance = '실행 상세에서 상태 파일과 저장 실패 여부를 확인하세요.'
-    else:
-        stage = '인벤 접속 또는 실행'
-        guidance = '인벤 접속 상태와 실행 상세의 오류를 확인하세요.'
-    repo = os.environ.get('GITHUB_REPOSITORY', 'kdkim2810/wow-inven-notifier')
-    run_id = os.environ.get('GITHUB_RUN_ID')
-    run_url = f'https://github.com/{repo}/actions/runs/{run_id}' if run_id else f'https://github.com/{repo}/actions'
-    body = (f'인벤 스크래퍼가 연속 {fail_count}회 실패했습니다.\n\n'
-            f'중단 단계: {stage}\n'
-            f'확인된 오류: {reason}\n\n'
-            f'확인할 사항\n• {guidance}\n'
-            '• 처리 지점은 유지되며, 다음 정기 실행에서 다시 확인합니다.\n\n'
-            f'실행 상세: {run_url}\n\n'
-            '같은 장애가 이어지는 동안 이 상세 메일은 반복 발송하지 않습니다.')
+        print('Gmail 설정 누락: 알림 메일을 보내지 못했습니다')
+        return False
+    rows = []
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        label, sep, value = line.partition(': ')
+        if sep and len(label) <= 14 and not label.startswith('http'):
+            rows.append(f'<tr><th style="padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid #ddd;width:105px">{escape(label)}</th><td style="padding:10px;border-bottom:1px solid #ddd;overflow-wrap:anywhere">{escape(value)}</td></tr>')
+        else:
+            rows.append(f'<tr><td colspan="2" style="padding:10px;border-bottom:1px solid #ddd;overflow-wrap:anywhere">{escape(line)}</td></tr>')
+    html = '<html><body style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5"><h3>' + escape(subject) + '</h3><table style="border-collapse:collapse;width:100%;max-width:600px">' + ''.join(rows) + '</table></body></html>'
     try:
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = f"[{'테스트/실패' if reason.startswith('[테스트]') else '실패'}] 인벤 스크래퍼 | {stage} | 연속 {fail_count}회"
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
         msg['From'] = GMAIL_USER
         msg['To'] = GMAIL_USER
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
         with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as smtp:
             smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             smtp.send_message(msg)
-        print('실패 알림 메일 전송 완료')
+        print('알림 메일 전송 완료')
+        return True
     except Exception as exc:
-        print(f'실패 메일 전송 오류: {type(exc).__name__}')
+        print(f'알림 메일 전송 오류: {type(exc).__name__}')
+        return False
+
+
+def send_fail_email(fail_count, reason):
+    if '디스코드' in reason or 'DISCORD' in reason:
+        stage, guidance = '디스코드 알림 전송', '웹훅 설정과 디스코드 서비스 상태를 확인하세요.'
+    elif '파싱' in reason or '게시글' in reason or '목록' in reason:
+        stage, guidance = '게시판 목록 확인', '인벤 게시판의 점검 여부와 화면 변경을 확인하세요.'
+    elif '상태' in reason or 'ID' in reason or '파일' in reason:
+        stage, guidance = '처리 상태 확인', '실행 상세에서 상태 파일과 저장 실패 여부를 확인하세요.'
+    else:
+        stage, guidance = '인벤 접속 또는 실행', '인벤 접속 상태와 실행 상세의 오류를 확인하세요.'
+    repo = os.environ.get('GITHUB_REPOSITORY', 'kdkim2810/wow-inven-notifier')
+    run_id = os.environ.get('GITHUB_RUN_ID')
+    url = f'https://github.com/{repo}/actions/runs/{run_id}' if run_id else f'https://github.com/{repo}/actions'
+    subject = f"[{'테스트/실패' if reason.startswith('[테스트]') else '실패'}] 인벤 스크래퍼 | {stage} | 연속 {fail_count}회"
+    body = (f'상태: 연속 {fail_count}회 실패\n중단 단계: {stage}\n확인된 오류: {reason}\n'
+            f'확인할 사항: {guidance}\n다음 실행: 처리 지점을 유지하고 다시 확인합니다.\n실행 상세: {url}')
+    sent = send_email(subject, body)
+    if sent:
+        print('실패 알림 메일 전송 완료')
+    return sent
+
+
+def send_recovery_email(fail_count, new_count):
+    repo = os.environ.get('GITHUB_REPOSITORY', 'kdkim2810/wow-inven-notifier')
+    run_id = os.environ.get('GITHUB_RUN_ID')
+    url = f'https://github.com/{repo}/actions/runs/{run_id}' if run_id else f'https://github.com/{repo}/actions'
+    body = (f'상태: 정상 복구\n이전 장애: 연속 {fail_count}회 실패\n'
+            f'이번 실행: 게시판 확인 및 알림 처리 완료\n새 게시글: {new_count}개\n실행 상세: {url}')
+    return send_email('[복구] 인벤 스크래퍼 정상 작동', body)
 
 
 def main(dry_run=False):
@@ -222,6 +246,10 @@ def main(dry_run=False):
             send_discord_msg(post['title'], post['link'])
             # 성공한 글만 즉시 기록. 다음 글 실패 시 다음 실행에서 재시도한다.
             write_counter(LAST_ID_FILE, post['id'])
+        previous_failures = read_counter(FAIL_COUNT_FILE)
+        if previous_failures >= FAIL_THRESHOLD and not send_recovery_email(previous_failures, len(new_posts)):
+            print('복구 메일 발송 실패: 다음 실행에서 다시 시도합니다')
+            return 0
         write_counter(FAIL_COUNT_FILE, 0)
         return 0
     except Exception as exc:
