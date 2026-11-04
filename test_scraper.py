@@ -29,6 +29,33 @@ class ScraperTests(unittest.TestCase):
         self.webhook.stop()
         os.chdir(self.cwd)
         self.directory.cleanup()
+    def test_recovery_sends_once_and_resets_count(self):
+        Path(s.FAIL_COUNT_FILE).write_text('3')
+        with patch.object(s, 'collect_new_posts', return_value=[]), patch.object(s, 'send_recovery_email', return_value=True) as mail:
+            self.assertEqual(s.main(), 0)
+            self.assertEqual(s.main(), 0)
+            mail.assert_called_once_with(3, 0)
+        self.assertEqual(s.read_counter(s.FAIL_COUNT_FILE), 0)
+
+    def test_recovery_email_retries_after_failure(self):
+        Path(s.FAIL_COUNT_FILE).write_text('3')
+        with patch.object(s, 'collect_new_posts', return_value=[]), patch.object(s, 'send_recovery_email', side_effect=[False, True]) as mail:
+            self.assertEqual(s.main(), 0)
+            self.assertEqual(s.read_counter(s.FAIL_COUNT_FILE), 3)
+            self.assertEqual(s.main(), 0)
+            self.assertEqual(mail.call_count, 2)
+        self.assertEqual(s.read_counter(s.FAIL_COUNT_FILE), 0)
+
+    def test_html_email_escapes_input_and_has_plain_alternative(self):
+        with patch.object(s, 'GMAIL_USER', 'test@example.com'), patch.object(s, 'GMAIL_APP_PASSWORD', 'test'), patch.object(s.smtplib, 'SMTP_SSL') as smtp:
+            self.assertTrue(s.send_email('제목', '오류: <script>'))
+            message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+            self.assertEqual(message.get_content_type(), 'multipart/alternative')
+            html = message.get_payload()[1].get_payload(decode=True).decode('utf-8')
+            self.assertIn('<table', html)
+            self.assertIn('&lt;script&gt;', html)
+            self.assertNotIn('<script>', html)
+
     def test_maintenance_preserves_state_and_sends_no_alert(self):
         html = '<html><title>인벤 - 서버 점검 중입니다.</title><div id="maintenancePage">서버점검 중</div></html>'
         with patch.object(s, 'fetch_with_retry', return_value=SimpleNamespace(text=html)), patch.object(s, 'send_discord_msg') as send, patch.object(s, 'send_fail_email') as email:
